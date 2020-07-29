@@ -16,18 +16,20 @@ int main(void)
 
 	printf("main pid:%d, tid:%lu\n", getpid(), pthread_self());
 
-	ret = pthread_create(&tid1, NULL, thread_fun, NULL);
+	ret = pthread_create(&tid1, NULL, thread_fun, NULL);//创建线程tid1
 	if (ret == -1) {
 		perror("cannot create new thread");
 		return 1;
 	}
 
-	ret = pthread_create(&tid2, NULL, thread_fun, NULL);
+	ret = pthread_create(&tid2, NULL, thread_fun, NULL);//创建线程tid2
 	if (ret == -1) {
 		perror("cannot create new thread");
 		return 1;
 	}
-
+	/*如果创建成功，在这个时候，带上主线程，应该有三个线程在跑*/
+		
+	/*join是在等线程的死亡*/
 	if (pthread_join(tid1, NULL) != 0) {
 		perror("call pthread_join function fail");
 		return 1;
