@@ -1,0 +1,6 @@
+Linux fork那些隐藏的开销
+https://blog.csdn.net/juS3Ve/article/details/100513163
+
+1，fork不是Linux所有的，fork已经有50年的历史！
+2，fork，返回两次！第一次是父进程返回子进程的pid，第二次子进程返回0！
+3，
