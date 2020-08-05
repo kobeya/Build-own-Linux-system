@@ -278,11 +278,99 @@
 	9，CMA，连续内存分配器,解决buddy算法导致的内存碎片化问题
 
 		实际解决例如DMA这样没有经过MMU的连续的大块物理内存的需求问题！
+	
+		前面有描述到，Kmalloc可以申请物理内存连续的虚拟地址也连续的内存，
+		但是Kmalloc无法申请大块的内存地址！！！所以，这里Kmalloc无法帮上忙了。
+
 		
 
+		工作原理：
+			预留一段内存给驱动使用，
+			当驱动不用的时候，buddy可以分配给用户进程用作匿名内存或者页缓存。
+			当驱动使用的时候，就将进程占用的内存回收或者迁移，拿回占用的预留内存。
 
 
+		初始化：
+			在buddy初始化之前，但又在memory block early allocator初始化之后。
+			初始化接口：
+				dma_contiguous_reserve(phys_addr_t limit);//limit是CMA上限
 
+			
+		分配：
+			CMA并不直接开放给driver的开发者。开发者只需要在需要分配dma缓冲区的时候，
+			调用dma相关函数就可以了，例如dma_alloc_coherent。
+			最终dma相关的分配函数会到达cma的分配函数：dma_alloc_from_contiguous
+
+
+		释放：
+			释放的流程比较简单，同分配一样，释放CMA的接口直接给dma。
+			比如，dma_free_coherent。它会最终调用到CMA中的释放接口：free_contig_range。
+			直接遍历每一个物理页将其释放到buddy系统中。
+
+
+		实践：
+			我们可以在dts中，轻松配置一个特定的CMA区域用作某些驱动的特殊用途：
+			  reserved-memory {
+			 	 	#address-cells = <1>;
+					#size-cells = <1>;
+					ranges;
+               			 /* global autoconfigured region for contiguous allocations */
+				 linux,cma {
+					compatible = "shared-dma-pool";
+					reusable;
+                        		size = <0x4000000>;
+                        		alignment = <0x2000>;
+                        		linux,cma-default;
+		                };
+
+		                display_reserved: framebuffer@78000000 {
+		                        reg = <0x78000000 0x800000>;
+                		};
+
+ 
+ 		               multimedia_reserved: multimedia@77000000 {
+		                        compatible = "acme,multimedia-memory";
+		                        reg = <0x77000000 0x4000000>;
+
+              			};
+        		};
+
+		如果我们没有配置特定的cma区域，就会从"linux，cma-default"指定缺省的CMA池中获取。
+
+		额外知识：
+			在分配的时候，我们看到分配CMA的时候调用第一节的API为
+			dma_alloc_coherent();
+			到目前位置，我们都在讨论CMA是分配连续的物理内存块，但是
+			它真的就一定是物理连续的吗？
+
+			答案是不一定的，这取决于是否存在IOMMU（ARM中称为SMMU）
+			SMMU的产生主要是为了解决虚拟化平台下的DMA重映射问题。
+			
+
+			CPU <-----MMU----> memory
+					^
+					|
+				     IOMMU/SMMU
+					|
+					v
+					外设/DMA
+
+			DMA，外设和内存的连接件，用于解放CPU。外设可以通过DMA，将搜集的数据批量传输
+			到内存，然后再发送一个中断通知CPU去内存取。这样减少了CPU被中断的次数，提高
+			了系统的效率。DMA要能够正常工作，首先要进行正确的配置（包括通道选择、
+			DMA源外设地址、DMA目的内存地址及尺寸等信息）；其次，一般需要连续的
+			一段或多段物理内存。由于DMA不能像CPU一样通过MMU操作虚拟地址，
+			所以DMA需要的是连续的物理地址。
+
+			这样就有一个问题，对于一些虚拟化的系统而言，它是无法正常工作的。那么怎么办？
+			现代计算机，引入IOMMU/SMMU的架构，对于非CPU的外设而言，也提供了一个MMU部件。
+			如果想深入，可以参考帖子：
+			https://blog.csdn.net/gaojy19881225/article/details/82585973
+			https://blog.csdn.net/finicswang/article/details/96107339
+
+			
+			
+			
 
 
 
