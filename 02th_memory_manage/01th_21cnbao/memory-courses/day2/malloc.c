@@ -46,7 +46,7 @@ malloc()和free()的原理实现
 
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
 int main ()
 {
 	char *p = (char *)malloc(0);
@@ -66,7 +66,17 @@ int main ()
 	{
 		printf("malloc p mem sucess!\n");
 	}
+	
+	/*验证一下malloc申请的虚拟内存在没有写之前，是否清零*/
+	int buf[1] = {6};
+	printf("before read p,buf = %d\n", buf[0]);
+
+	memcpy(buf, p, 1);
+
+	printf("after copy p then buf = %d\n", buf[0]);
+
 
 	free(p);free(p1);free(p2);free(p3);free(p4);
+	while(1);
 	return 0;
 }
