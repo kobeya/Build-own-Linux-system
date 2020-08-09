@@ -314,7 +314,7 @@
 9，内存耗尽OOM
 	
 	reference：https://blog.csdn.net/liukuan73/article/details/43238623
-
+	[为了避免这个好帖子被删除，我新建一个临时文档保存下内存！放在02_知识点中]
 	oom_score:
 	Linux在运行时，都会给每一个进程打一个分：out of memory
 	进程消耗的内存越多，这个分数就越高---->oom_score
