@@ -108,8 +108,27 @@
  *			使用如下命令可以让之现行：
  *				#netstat -nap | grep SYN_RECV
  *
+ *		6，创建socket返回文件描述符的原理：
+ *			就跟每个进程都拥有一个task_struct一样，每个socket也有自己的文件描述符，当进程
+ *			打开一个文件时，系统就把一个指向这个文件的内部数据结构的指针，
+ *			写入由系统维护的一张单独的文件描述符表，并把该表的索引值，返回给调用者。
+ *			应用程序只需要记住这个描述符，并在以后操作该文件时使用它。
+ *			系统把描述符作为索引访问进程描述符表，通过表中的指针找到保存该文件的所有
+ *			信息的数据结构，如下图所示
  *
  *
+ *				open()/create()/socket()...
+ *					|
+ *					V
+ *				系统会把打开文件的内部数据结构的指针，保存在一个描述符表，
+ *				实际上，这个表系统维护，却也保存在描述符中。
+ *					|
+ *					V
+ *				再返回一个描述符表项的对应的索引值
+ *
+ *			这样，我们就可以通过这个索引值，找到打开的文件的内部数据结构。
+ *
+ *			注意事项：在windows上，文件描述符被称呼为文件句柄。
  *
  *	【协议层图演示】
  *
@@ -176,9 +195,12 @@
  *			① 并不是上面的type和protocol可以随意组合的，如SOCK_STREAM
  *			不可以跟IPPROTO_UDP组合。当protocol为0时，会自动选择type类型对应的默认协议。
  *			
- *			② 当我们调用socket创一个socket时，返回的socket描述子，存在协议族，也就是
+ *			② 当我们调用socket创一个socket时，返回的socket描述字，存在协议族，也就是
  *			domain的空间中，没有具体的地址。我们可以使用bind()函数给他赋一个地址，否则
  *			在调用connect、listen时，系统会自动随机分配一个端口。
+ *
+ *			③ 系统刚创建socket的时候，内部大多数的字段是没有填写的，后续在使用这个socket
+ *			之前，再调用其他的过程来填充这些字段。
  *
  *		2，bind
  *			int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -385,9 +407,29 @@
  *			通信的哪个阶段。
  *
  *		
+ *	
+ *	【抓包】
+ *		工具tcpdump  (windows下图形抓包工具Wireshark)
+ *		使用	sudo tcpdump -iany tcp port *** //dump 任意网口与tcp的***port口通信
+ *			sudo tcpdump -i eth0 udp port *** //dump eth0与udp的***port口通信
  *
+ *		log分析:
  *
+ *		第一次握手
+ *		09:52:59.466061 IP localhost.41618 > localhost.36666: Flags [S], seq 1907759069, 
+ *		win 65495, options [mss 65495,sackOK,TS val 12462626 ecr 0,nop,wscale 7], length 0
  *
+ *		① 时间精准到微秒
+ *		② IP localhost.41618 > localhost.36666，通信流方向
+ *		③ Flags [S]
+ *			[S],SYN请求
+ *			[S.],SYN请求+ACK确认包
+ *			[.],ACK确认包
+ *			[P],数据推送
+ *			[F],FIN包，关闭连接
+ *			[R],RST包，与F包作用相同，差异是R包更加猛烈，理解为强制切断，不等任何数据处理
+ *			win 65495,滑动窗口大小
+ *			length 0,数据包的大小，这里为0
  *
  *
  * */						
