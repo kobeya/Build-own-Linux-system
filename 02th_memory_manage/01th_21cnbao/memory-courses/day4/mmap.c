@@ -23,10 +23,14 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 	printf("%s\n", m);
-
 	*m='a';
 	*(m+1)='b';
 	m[2]='c';
+	printf("%s\n", m);
+
+	for(i = 0; i < 5; i++) {
+		*(m+i) += ('A' - 'a');
+	}
 	printf("%s\n", m);
 
 	munmap(m, MAP_SIZE);
