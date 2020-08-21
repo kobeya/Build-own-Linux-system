@@ -1,0 +1,34 @@
+一、perf简介
+	1，perf performance Event
+		Linux 2.6.31版本后内建的系统性能分析工具
+		Linux系统原生提供的性能分析工具，返回CPU正在执行的函数名以及调用栈
+		核心部件包括利用PMU(Performance Monitoring Unit)、tracepoint、特殊计数器等
+
+	2，安装
+		sudo apt install linux-tools-common
+		sudo apt install linux-tools-5.4.0-42-generic linux-cloud-tools-5.4.0-42-generic /
+		linux-tools-generic
+
+	3，一些常用的命令或者选项
+	
+		① sudo perf top -p pid
+		观察对应pid的进程所有的函数对CPU使用的情况
+
+		② perf stat ./a.out
+		观察a.out程序运行的一段时间中对cpu、cache等各种系统信息的统计，百分比
+
+		③ perf list
+		列出所有采样的事件，大概可以分为3类
+		硬件事件
+		软件事件
+		tracepoite事件
+
+二、使用perf产出CPU调用栈的火焰图
+
+	1，火焰图，用来查看函数的调用栈，调用栈越深，火焰越高，顶部就是正在执行的函数。
+
+	2，找到程序百分比高的热点代码片段，然后使用perf record记录单个函数的统计信息，
+		(你可以使用perf report显示统计结果）
+		第二步，使用perf script解析
+		然后从github上下载一个开源项目Flame Graph，里面有很多py写的工具
+		借助这些工具，生成SVG格式的火焰图
