@@ -1,0 +1,67 @@
+主题：	ARM Linux原子操作的实现
+参考文章如下：
+https://mp.weixin.qq.com/s?__biz=MzAwMDUwNDgxOA==&mid=2652664957&idx=1&sn=b230f10da7634319d24d22f12c52e354&chksm=810f32e0b678bbf618523490a5c31f5f19668dd851865ce983f28edae61c8935b9cf61cd275c&scene=21#wechat_redirect
+
+ARMv7之后，有两条汇编指令LDREX、STREX可以保证指令的序列化
+		LDREX读R，STREX写W。
+		STREX写的行为是除了写之外，还会返回一个值给r0，如果成功，r0 = 0，否则不等于0.
+		也就是说，这个原子操作的实现，在ARM v7之后的根本原因是提供了特定的汇编指令，
+		保证在读写的时候，是串行的。STREX把一个寄存器的值写到一个lock的地址。
+		lock有个属性，说明它是否可写，如果已经有指令写了，还没有返回，那么它不允许再次
+		写。
+
+		所以谁先LDREX不是重点，重点是谁先STREX谁成功，后STREX的重新来LDREX。
+	
+		__asm__ __volatile__("@ atomic_add_return\n"
+		"1:	ldrex	%0, [%3]\n"
+		"	add	%0, %0, %4\n"
+		"	strex	%1, %0, [%3]\n"
+		"	teq	%1, #0\n"
+		"	bne	1b"
+		: "=&r" (result), "=&r" (tmp), "+Qo" (v->counter)
+		: "r" (&v->counter), "Ir" (i)
+		: "cc");
+
+
+	总结，在ARMv7中是通过内嵌汇编来实现原子操作。
+		这个特定的汇编指令，会写一个lock属性的地址，如果写成功，就会返回0，否则返回不是0，
+		此刻，返回不是0说明写失败，那么就会重新执行这个原子操作内嵌汇编，这样就保证了
+		一个时刻，只能有一个写。
+
+
+
+
+
+文章2：
+https://blog.csdn.net/juS3Ve/article/details/81784688?utm_source=blogxgwz7&utm_medium=distribute.pc_relevant.none-task-blog-title-4&spm=1001.2101.3001.4242
+
+
+在ARMv8 架构下对应的是LDXR (load exclusive register 和STXR （store exclusiveregister）及其变种指令，
+	另外，在ARMv8.1架构中引入atomic instruction, 例如LDADD （Atomic add），
+	CAS（Compare and Swap）等。
+
+
+	这些指令，具体是除了向memory发起load请求，还会记录memory所在地址的状态。
+	也就是跟arm v7有点类似，写就会记录一个状态，别的操作，就别想继续写。
+	armv7是写带lock属性的地址，armv8是写open、exclusive的地址。
+
+	
+
+总结上述的情况，我们目前可以理解：arm平台上的原子操作怎么得到保障，或者怎么实现原子操作的？
+
+	答：实际上，我们通过保证多CPU之间对某一内存地址中的值做写的时候，是有序的即可。
+	利用这个性质的操作就是原子操作，系统可以通过特定的汇编指令做到这样的保证。
+
+
+【继续深入】
+
+	文章3：
+	https://blog.csdn.net/ytfy339784578/article/details/104747782?utm_medium=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-5.add_param_isCf&depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-5.add_param_isCf
+
+	文章4：
+	https://blog.csdn.net/jus3ve/article/details/82156673
+
+
+
+	
+
