@@ -1,0 +1,45 @@
+本章的主题主要描述在CSI、DSI的phy layer的标准：D-PHY
+
+1，D-PHY的物理线
+	1）1对源同步的差分时钟 +CLK、-CLK
+	2) 1~4对的差分数据信号线来传输数据
+
+
+2，D-PHY数据传输触发方式
+
+	DDR方式，也就是在时钟上、下边沿都会触发数据传输
+
+
+3，D-PHY的数据传输模式
+
+	1）LP，	0~1.2V
+		单端信号，速率很多，<10MB/s
+	2）HS	100mV~300mV
+		低压差分信号，功耗较大，但是速率很高
+		80Mbps~1Gbps
+
+
+4，CSI、DSI为什么选择共用D-PHY？
+	这样设计可以提供效率、降低功耗和EMI
+
+5，D-PHY到M-PHY
+
+	听闻，
+	现在行业已经向M-PHY过度，M-PHY的引脚更少，而且还能提供更多的选择和更快的速度，
+	1G->6G？
+
+
+
+
+
+
+
+
+参考文章：
+http://www.xk-image.com/wordpress/2017/01/20/mipi_intro/
+里面描述的一些图不错，鉴于我使用vim编辑器的问题，无法贴图了。
+https://blog.csdn.net/qq_38880380/article/details/81280875
+这个帖子最后包含的一些帖子汇总有收藏价值
+
+https://www.mipi.org/，mipi联盟的官网
+	

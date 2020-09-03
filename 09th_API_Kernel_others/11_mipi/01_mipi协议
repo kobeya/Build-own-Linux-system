@@ -1,0 +1,104 @@
+【一、本章主题	MIPI协议的接口、规范】
+
+【二、基本介绍】
+
+	1，MIPI
+		Mobile Industry Processor Interface
+		移动行业处理器接口，是移动联盟发起的，为移动应用处理器制定的开发标准。
+		
+		扩展：
+		    2003年由ARM, Nokia, ST ,TI等公司成立的一个联盟，目的是把手机内部的接口如摄像头、
+		显示屏接口、射频/基带接口等标准化，从而减少手机设计的复杂程度和增加设计灵活性。
+		 MIPI联盟下面有不同的WorkGroup，分别定义了一系列的手机内部接口标准，比如摄像头
+		接口CSI、显示接口DSI、射频接口DigRF、麦克风 /喇叭接口SLIMbus等。
+		    统一接口标准的好处是手机厂商根据需要可以从市面上灵活选择不同的芯片和模组，
+		更改设计和功能时更加快捷方便，所以，我个人预测未来ARM Linux的开发越来越容易入门，
+		竞争越来越多，中下水平的求职者内卷？
+
+	2，规范
+
+		1）camera	Camera Serial Interface 2 v1.0	简称 CSI-2
+		2）Display	DBI-2、DPI-2、DSI、DCS
+		3）高速同步接口	HSI 1.0
+		4）物理层	D-PHY、M-PHY
+		5）系统电源管理	SPMI
+		6）统一协议	UniPro 1 point-to-point、PIE
+
+
+	3，名词解释
+
+		1）DCS，Display Command Set，标准化的命令集，用于命令模式的显示模块
+		2）DSI，Display Serial Interface，处理器与显示模组之间的高速串行接口
+		3）CSI，Camera Serial Interface，处理器与摄像模组之间的高速串行接口	
+		4）D-PHY，提供DSI、CSI的物理层定义
+
+	4，DSI分层解剖
+
+		
+
+
+	5，DSI的两种操作模式
+		
+		模式的选择，由外设的架构决定，目前我接触到的n款LCD（国显、京东方）都是使用video模式
+		1）command模式
+		采用发送命令和数据到具有显示缓存的LCD控制器，主机通过命令间接控制外设，采用双向接口
+		2）video模式
+		主机采用实时像素流的方式传输给LCD，这种模式只能以高速传输，单向数据路径
+		video的优势在于减少复杂性和节约成本，我个人理解就是这个传输过程不需要太多的控制或者
+		维护，只需要打开高速模式，把像素图像数据直接丢给LCD的缓存就可以。
+
+
+
+【三、D-PHY】
+
+	前面描述了，不管是CSI-2还是DSI，都是通过D-PHY物理层来支撑，那么这个D-PHY的物理层定义究竟是
+	怎么样的，接下来让我们往下继续讨论。
+
+	1，PHY配置包括什么？
+		1）一个时钟lane
+		2）一条或者多条数据lane，比如我之前JD9365（联想和腾讯项目均采用这个LCD ID）
+		使用了4lane，决定这个lane的数量是应用中带宽需求。
+
+	2，D-PHY传输模式
+		1）低功耗Low-Power，用于控制，10MHz（max）
+		2）高速High-Speed，用于高速传输，80Mbps～1Gbps/Lane，也就是最小10MB/s一条lane
+		3）发送数据，低位在前，高位在后
+
+	3，D-PHY按照lane来划分
+		1）LP-TX，低功耗发送器
+		2）LP-RX，低功耗接收器
+		3）HS-RX，高速接收器
+		4）HS-TX，高速发送器
+		5）LP-CD，低功耗竞争检测器
+
+	4，lane的主要类型
+		1）单向时钟
+			Master，包括HS-TX、LP-TX
+			Slave，包括HS-RX、LP-RX
+
+		2）单向数据
+			前面描述了我接触到的产品均使用video模式，单向数据串行传输模式，
+			所以如果在实际产品开发中，硬测不过，很大概率不是CPU端的问题哦！
+
+		3）双向数据
+			
+
+	5，lane的典型电压
+
+		LP，0~1.2v
+		HS，100~300mV，一般200mV
+
+
+
+
+
+
+
+
+备注，参考文章：
+1，MIPI接口介绍https://blog.csdn.net/zhang_danf/article/details/78705133
+	这篇文章描述的排版有点杂乱，不过也简单的介绍了mipi的一些基本概念
+2，CSI-2接口协议https://baijiahao.baidu.com/s?id=1594891152373506133&wfr=spider&for=pc
+	这个帖子描述了CSI-2的由来、分层以及常见的链路
+		
+3，mipi官网：https://www.mipi.org/	

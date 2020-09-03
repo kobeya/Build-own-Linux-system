@@ -1,0 +1,67 @@
+本章主题是关于在实践中调试mipi的经验，包括记录一下别人的经验
+
+【前言】
+	其实mipi屏调试也不难，从手册扣除关键信息，填写到dts就可以解决很多常见的问题，
+	我个人是不想写这一章的，因为在这个仓库里面，这一章的存在显得有点low，
+	但是为了满足整个mipi从有到实践的脉络，还是简单写一些内容。
+
+【调试一般步骤】
+
+	1，查看屏的手册和规格书获取关键信息
+
+	2，编写、填充屏的dts信息
+
+	3，烧录检测
+
+下面分别简单描述下：
+
+	1，芯片手册关键信息
+		1）对于不熟悉的朋友，其实可以直接看SDK中某个平台自带的屏的dts，作为参考
+			最好选择类型差不多的，摘取关键属性，然后根据这些属性查找手册
+
+		2）手册关键信息
+			a	通用配置
+				a.1	Hactive，水平分辨率（Horizontal ）
+				a.2	Vactive，垂直分辨率（Vertical ）
+				a.3	Lanes，mipi data信号通道数、线
+			b	上下电时序
+				咨询原厂直接获取初始化代码，可能给的格式不对，那么我们需要修改一下
+			c	timing屏参数
+				c.1	Horizontal 代表水平方向
+				c.2	HBP 行同步信号后肩 
+				c.3	HFP 行同步信号前肩，单位是 clocks
+
+				c.4	Vertical 代表垂直方向
+				c.5	VBP 帧同步信号后肩
+				c.6	VFP 帧同步信号前肩，单位是 lines
+				
+			根据以上的信息，我们还能计算出 Mipi Dsi Clock
+			具体公式，查询对应的芯片手册。
+
+
+
+	2，我们在下初始化参数的时候，一些注意事项：
+		* Mipi DSI 协议中 Generic 和 DCS 的区别*
+		0x29和0x39都可以表示多参，0x03 和 0x05 都可以表示无参
+		0x13 和 0x15 都可以表示单参。但他们不是没有区别的。
+		DSI 协议中 ，0x29 和 0x39 区别：
+		在 Mipi 协议中，它俩都表示 长包（Long Packet）数据类型。
+		但是 Mipi DSI 的 Spec 中写着两者的区别 0x29 属于 Generic long write ，
+		0x39 属于 DCS long write。
+		DCS 系的读写命令，可带参数，常用于 LCD 初始化参数命令。
+		Generic 系读写命令，是协议规范外的命令，通常是一些 IC 定制的，
+		只要确保主机和外设同意这些数据格式即可，通常和DCS通用。
+
+
+https://blog.csdn.net/g_salamander/article/details/9163455
+https://blog.csdn.net/Shushan1/article/details/88553554
+https://blog.csdn.net/Shushan1/article/details/87858434
+https://blog.csdn.net/Shushan1/article/details/85682485
+非常多类似的帖子，有趣的是，我翻阅到曾经的同事的一个帖子：
+https://blog.csdn.net/dearsq/article/details/52354593
+
+【回忆录】
+	那时候我们都在不停的移植各种设备外设、调试各种平台bug
+	他就坐在我的右手边，boss对我们几个轮询，一天问4~5回：
+	在做什么？怎么做？做得怎么样了？有什么思路吗？你这个做了很久了。。。
+	哈哈，现在大家早离开那个公司，联系也少了，虽然在群里时不时会冒几句，但久了也就有了隔膜。
