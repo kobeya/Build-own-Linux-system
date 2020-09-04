@@ -1,0 +1,266 @@
+【cache的基本原理】
+
+（备注，这部分相对简单，这里不会太啰嗦阐述）
+
+一、为什么需要cache？
+	1，各层次的读写速度差异，为了尽可能满足CPU效率，加入高速低容量的cache
+	2，在contex-A53架构中，存储层次结构示意图
+
+
+		CPU0		CPU1	 |	CPU2		CPU3
+					 |
+	L1	data cache	dcache	 |	dcache		dcache   --->哈佛结构
+		instruction cache	 |	icache		icache
+		—————————————————————————|————————————————————————————
+ 					 |
+		不区分数据或者指令	 |	不区分数据或者指令	 --->冯诺依曼结构
+	L2	cluster内的cpu共享L2	 | 
+		——————————————————————————————————————————————————————
+				
+	L3			   所有CPU共享L3
+
+		———————————————————————————————————————————————————————
+				      |BUS总线|	
+	
+					主存
+
+				～～～～～～～～～～～～
+
+
+
+二、cache寻址
+		
+		1，多路组相连的cache解释
+			1）为了解决cache thrashing颠簸的问题，引入多路的概念
+				就是把整个cache平均分成多份，每一份就是一路。
+				多路也有缺陷，就是成本更高，硬件设计更复杂
+
+			2）每路中，包含的cache line的数目称为组数量，也就是一个组，包含所有路中
+				相同位置的cache line。
+				cache line是cache数据读写的最小单元，
+				简单的说，就是如果更新一个cache，那么就是更新整个cache line单元
+				cache line的大小在现代处理器硬件设计中一般为4~128Bytes。	
+
+			3）一个地址在cache的角度看，有三部分组成：
+				a offset，用于计算在一个cache line中的偏移量
+				b index，用于索引所有路中的哪个组，也就是说这个组中所有的cache line
+				c tag，用于分辨哪个cache line会命中
+
+			4）cache line开始1bit是一个有效位，默认开机的时候cache line都是无效的，
+				也就是此刻cache line里面没有任何有效数据，也就是此刻的cache都会miss。
+				     结束1bit是一个脏位，Dirty bit，记录数据是否被修改，
+				如果数据被修改并且我们cache line采用写回更新策略的时候，如果发生
+				cache line置换，那么需要把cache line的数据sync到main memory。
+
+
+BUG			描述到Valid Bit与Dirty Bit的时候，有没有感觉到有些重复，
+			当一个cache line有效，是不是本身也说明了有数据，当发生置换的时候，
+			不需要判断D直接写回就好了呀，这样不是可以节省1bit吗？
+			按照我的理解，Dbit还有一个效果，就是告诉系统，这个数据已经与主存
+			不同步了，如果同步，也不需要写回的，也就是在写回的时候更加有优势。
+
+
+	假设有一个48bit地址位宽的地址长成这样
+		
+		0000 0000 0000 0000 0000 0100 1100 0011 0010 000  1 00   11 0011B
+	       |		tag				 |index	| offset  	
+	                         |                                  |   
+			  tag可能同步确定哪个cache line             |
+		【V.........+.......D】	【V.........+.......D】     | 【V.........+.......D】
+		【V.........+.......D】 【V.........+.......D】     | 【V.........+.......D】
+		【V.........+.......D】 【V.........+.......D】     | 【V.........+.......D】
+	index到4【V.........+.......D】 【V.........+.......D】-----^-【V.........+.......D】
+		【V.........+.......D】 【V.........+.......D】       【V.........+.......D】
+		【V.........+.......D】 【V.........+.......D】       【V.........+.......D】
+
+			（假设有3路6组相连cache，cache line大小64Bytes）
+
+	所以某个地址的寻址演示如下：
+		1）每个cache line 64Bytes，那么在64字节中找到想要的字节，需要6bit做偏移量
+			那么offset = 6bit
+
+		2）cache line有6路，所以
+			index = 3bit = 2^3 > 6 < 2^4
+
+		3）tag = 地址bit - offset - index = 48 - 6 - 3 = 39bit
+
+
+三、基本解释
+
+	1，cache的分配策略cache allocation policy
+		指的是，我们什么情况下应该为数据分配cache line
+		1）读分配read allocation
+	
+		默认情况下，都支持读分配。
+		当CPU读一个数据，此刻若是cache line miss，那么就会从主存中读取数据，并且
+		这个数据会在cache中得到分配一个cache line，请注意，我面前有描述，cache line的数据
+		更改，都是以line为单位的，所以我们这样理解会更合适：
+		当cache支持读分配的时候，CPU读取一个cache miss的数据，此刻就会分配一个cache line
+		来缓存来自主存的包含要读取数据的一个cache line大小的数据。
+
+		CPU -------1miss----> cache -----2hit---> main memory
+		^----------4hit-------- ^                     |
+					|	              |
+				   3分配一个cache line	      |	
+					|		      |	
+					----------------------
+
+		
+		2）写分配 write allocation
+			
+		如果不支持写分配，那么数据就直接写入主存，然后就结束。
+
+		如果支持写分配，那么当CPU第一次要写数据的时候，会发生以下事情：
+			a	首先会发生cache miss
+			b	分配一个cache line，拷贝主存中对应的数据位，相当于做一个读分配
+			c	此刻cache hit，更新cache line中的数据，如果写直通，还会更新主存
+
+
+	
+	2，cache的写更新策略cache update policy
+
+		当支持写分配，而且发生写命中的时候，此刻的策略是什么？
+		
+		1）写直通 write through
+		当CPU执行store指令在cache命中的时候，更新cache line并且更新对应的主存，
+			优势，cache与main memory保持一致
+			缺点，写main memory的速度会拖延CPU的效率
+
+
+		2）写回 write back
+		当CPU执行store指令在cache中命中，那么只会更新cache line中的数据，置位Dirty Bit。
+		当cache line置换或者是显式sync、clean操作，才会更新主存。
+			优势，提供CPU效率
+			缺点，cache与main memory中的数据可能出现不同步，这个问题，后续会展开。
+
+
+	3，这里以一个CPU开机第一次写一个地址为例说明
+
+
+		CPU要写一个地址0x123里面的数据，cache支持写分配并且采用写回更新策略
+		1）cache line的V有效位为0，也就是cache line是无效的，此刻发生cache miss，进入主存
+		2）做一个读分配，分配一个cache line，拷贝main memory对应地址的数据到新分配的cache
+		3）此刻cache line hit，写cache line中的数据，D置位
+
+
+	4，CPU第一次写一个没有分配cache line的数据，此刻cache line是D置位
+
+		1）因为cache line没有命中，此时发生写回
+		2）检查当前的index对应但tag不对应的cache line的D位，发现已经置位
+		3）按照当前cache line的index+tag对应的地址，写回当前cache line的数据到对应的主存
+		4）此刻，发生写分配，把对应cache line地址的主存数据拷贝到cache line中
+		5）更新cache line中的数据，再置位D
+
+
+
+总结：cache 的行为特征
+	先确定cache是什么样的组织形式，然后采用什么样的分配、更新策略
+	最后，根据当前的V位、D位来判断需要执行什么样的行为。
+		
+
+
+
+
+
+
+ 
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
