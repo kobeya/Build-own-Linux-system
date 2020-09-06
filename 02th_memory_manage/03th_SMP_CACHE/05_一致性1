@@ -1,0 +1,243 @@
+【主题	一致性1】
+	1，cache与DMA的一致性
+	2，icache与dcache的一致性
+	3，多核cache一致性
+
+
+
+【一、】cache与DMA的一致性
+	
+	问题：如果cache是写回更新策略，然后在做DMA的时候，如果此刻cache与主存数据不一致怎么处理？
+	这个问题，一下子不好回答，因为不同的场景可能使用不同的策略，下面就针对各种情况细分一下描述
+
+	1，硬件上支持 总线监视技术
+		cache控制器会监视总线上的每一条内存，然后检查是否命中，然后会把有修改的cache中的
+		数据同步到DMA拷贝的内存。
+
+	2，在申请DMA内存的时候，配置nocache属性，比如我们的dma_alloc_coherent()接口就是这么干的
+		这样也有缺点，我们知道，DMA的内存也是可以进行普通操作，如果DMA的操作很少，
+		大部分是普通操作，那么就会导致这块内存中数据读取性能下降。
+
+	3，软件动态维护
+		具体表现在IO与DMA buffer传输数据的时候，对cache进行写回或者禁止等操作，这里先不展开
+	
+	4，DMA buffer对齐要求
+		我们知道，cache分配是整个cache line一起的，而且数据的移动的最小单位为cache line
+		这就意味着，如果我们只是想修改cache line中某个值，实际上，我们会修改整个cache line。
+		
+		举个例子，假设我们连个数据单元
+		int i = 1；
+		char buffer[64] = {0};
+
+		当我们为这两组数据单元分配cache line（一个cache line 64字节）的时候，可能会是这样的：
+	
+		第一个cache line：
+		前4个字节保存i的值，后面60个字节保存buffer[0]到buffer[59]	
+		第二个cache line：
+		前4个字节保存buffer[60]到buffer[63],后面60个字节填充0，满足cache line要求。
+
+		如果某一时刻，我们修改i的值，那么对一个的第一个cache line Dirty bit就会置位
+		后续如果我们刚好需要写回这个cache line，那么对应里面的buffer的值也就会被写回，
+		这样就可能干扰DMA的传输了。
+
+		为了解决这个问题，要求DMA buffer分配的时候，保证cache line中实现对齐。
+		怎么解决呢？
+
+		答：这个需要分不同的平台架构
+
+		1）X86_64，硬件上可以保证DMA的一致性
+		2）ARM64，使用kmalloc来分配DMA buffer，这就要求kmalloc分配的内存必须cache line对齐
+		Linux提供了一个宏，保证kmalloc分配的对象最小的size
+			例如ARM64平台的定义如下：
+			#define ARCH_DMA_MINALIGN	(128)	
+
+
+		ARM64使用的cacheline大小一般是64或者128字节。为了保证分配的内存是cacheline对齐，
+		取了最大值128。如果我们查阅x86_64架构的代码，可以发现没有定义这部分内容，
+		因为x86_64硬件保证了DMA一致性。因此，我们看到x86_64平台，slub管理的kmem cache最小的
+		是kmalloc-8。而ARM64平台，slub管理的kmem cache最小的是kmalloc-128。
+		所以，我们可以这样说，Linux虽然提供了slub很多非常小的单位对象，但是使用kmalloc分配
+		内存的时候，最小也必须是128个字节。如果你只是想要1个字节，不好意思，照样给你128，
+		浪费也就无法避免了。
+
+	总结：Linux如何保证DMA与cache的一致性
+
+	1）硬件支持-总线监视技术
+	2）软件动态-在DMA之前，先写回对应DMA的cache内容，DMA开展后，禁止cache写回
+	3）一般DMA分配的时候，最简单的方式是，分配的内容属性为nocache。
+	4）DMA使用kmalloc分配，保证cache line对齐，cache line的大小 
+		
+
+二、icache与dcache的一致性
+
+	1，简单介绍一下为什么L1分为icache和dcache
+	答：主要是因为性能考量，指令和数据分开，硬件上可以做到同时读取，这样就提升cpu效率
+		而且，指令只读，所以icache的设计成本也会下降。
+
+
+	2，怎么区分数据或者指令？
+	答：从CPU的角度出发，如果数据通过地址总线读取，就是指令
+		如果数据通过数据总线读写，那么就是数据。
+
+		CPU
+		--------地址总线------------->icache 指令
+		--------数据总线------------->dcache 数据
+
+	而且，
+	PC指针寄存器，指向的是程序将要执行的下一条指令的地址，也就是说PC读取到的值，是缓存在icache
+	剩下的就缓存到dcache。
+
+
+	3，icache的歧义和别名问题
+	答：不存在这些问题，首先icache的属性是只读，就算你发生多个映射也没有关系，反正不会修改
+	数据，你想怎么读就怎么读呗。
+
+	4，icache与dcache怎么出现一致性问题
+	答：一般情况下，我们程序的代码段在编译后不会再去修改，此刻，icache与dcache是不存在一致性
+	问题的，但是系统面对的情况需要考虑周全，如果出现一些程序，可以修改自己的代码段，
+	比如self-modifying code的时候，或者程序打断点，也就修改自己的正常执行的指令，
+	此刻，icache的属性是只读的，那么系统没得选择，修改的指令当成数据，缓存在dcache中，
+	此时，icache就会面临与dcache的一致性问题。
+
+
+	到这里，也许你还会疑问，系统怎么知道指令修改了呢？怎么从dcache数据域的东西会是指令呢？
+	答：程序在编译的时候，就已经分配好各个段的属性，代码段拥有可执行权限。
+	那么，如果一个数据，出现了可执行权限，系统就知道，程序改变了自身的一些指令，让某些“数据”
+	拥有了可执行权限，也就是指令，当我们写dcache的时候，就知道写入dcache的数据，是即将要同步
+	到icache的指令，请注意，icache的属性只读，它只能clear cache line，更新自己的指令。
+
+
+	5，怎么解决？
+	答：
+		1）硬件上维护一致性
+		现在的cpu，x86全部硬件上支持，ARM64服务器类芯片也开始支持。
+		总的来说，高性能服务器基本都硬件上支持i/d cache一致性。
+		可以简单理解硬件怎么维护的，当发现修改的数据拥有可执行权限，那么就会查询更新icache
+		对应的cache line。
+		
+		2）软件上维护一致性
+			a	将需要修改的指令，先缓存到dcache
+			b	修改了该指令后，再缓存到dcache
+			c	sfence或者mfence内存屏障指令，保证dcache的更新同步到下一级cache
+			d	invalid icache中修改指令对应的cache line，从下级同步上来
+
+		可以简单理解软件上维护L1 cache一致性，
+		dcache是通过屏障指令同步到一下级cache，然后下一级再同步回icache。
+
+	总结，icache与dcache怎么维护一致性	
+
+			    -------------CPU----------------
+			    |				   |
+			通过发现数据的属性		   |
+			为可执行，就知道                   |
+			修改了指令，此刻只能               |
+			缓存到可读写的dcache               |
+			     |	                           |
+			     V	                           V
+			|数据总线|			|地址总线|
+		L1	     |				     |			
+			  dcache			   icache
+			    |				    ^
+			通过sfence、mfence内存屏障指令      |
+ 			同步到L2cache			    |再invalid回icache
+		L2 ————————————————————————————————————————————————————————————————————	
+
+
+
+
+
+三、多核cache一致性
+
+	首先，非常高兴：多核cache一致性的维护，是通过硬件来实现的，没软件什么事情。
+	但是，我们还是应该这里面涉及到的知识点。
+
+	早期，我们通过
+	1，bus snooping，总线监视技术
+		有没有熟悉我们DMA做一致性的情况，硬件上也是利用总线监视技术来维护一致性
+		
+		1）当某个cpu要修改自己的私有cache，也就是L1 cache的时候
+		2）硬件就会通知在总线上其他所有的cpu
+		3）如果也同样缓存有即将修改的时候，那么就同步更新对应的cache line
+
+		缺点：
+		因为CPU的L1只要修改，就会通知其他所有CPU，也不管别人要不要，或者想不想理你，
+		增加总线负载，也增加了读写的延迟
+
+	现在，我们优化上面的技术，引入L1状态机机制
+
+	2，MESI Protocol协议
+		MESI是一个简写词，它的含义就是L1各种状态的集合
+		下面，让我们按照图示的步骤解释这个简写词
+		1）E，Exclusive，当一个CPU读取一个数据，此刻只缓存在某一个CPU，比如CPU0的L1
+			这个CPU L1对应的cache line的状态标志为Exclusive。			
+		2）S，Shared，当其他CPU也同样想访问这个数据，实际就是访问同一个进程的同一个地址，
+			此刻就先与CPU0中L1的对应cache line共享数据，并且会同步到主存
+			此时，这两个共享数据的L1 cache line的状态标志为Shared。
+		3）M，Modify，当CPU想要修改Shared状态的cache line，那么就会先通知其他共享cache
+			line的CPU，把状态修改Invalid，然后它再把自己的状态改为Modify。
+			这样也就是说，如果CPU想要修改Modify的cache line，那么就可以随意修改，
+			因为此时，其他CPU是Invalid的，别的CPU没有这个数据需要同步。
+		4）I，Invalid，是无效的，是cache修改自己cache line中的V标志bit，V = 0，那么
+			此时cache line就是无效的，里面的内容没有任何意义了。
+
+
+		这些机制，是通过硬件message来实现的
+		1）Read: 如果CPU需要读取某个地址的数据。
+		2）Read Response: 答复一个读消息，并且返回需要读取的数据。
+		3）Invalidate: 请求其他CPU invalid地址对应的cache line。
+		4）Invalidate Acknowledge: 回复invalidate消息，表明对应的cache line已经被invalidate
+		5）Read Invalidate: Read + Invalidate消息的组合。
+		6）Writeback: 该消息包含要回写到内存的地址和数据。
+
+
+
+	3，现在的CPU MESI使用状态
+		因为随意需求越来越多，对性能越来越苛刻，现在的CPU也有了MESI的变种，
+		但是总的来说，就是通过MEST来维护多核cache的一致性，也就是维护多核
+		L1（甚至集群中的L2）cache的一致性。
+
+		比如
+		ARM64架构，使用MESI的更加优化版本MOESI，增加一个Owner状态，更加优化性能。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
