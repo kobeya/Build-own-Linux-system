@@ -1,0 +1,36 @@
+【伪共享】
+
+	1，伪共享描述
+
+		
+		1）两个内核全局变量在同一个cache line单元
+		假设，在内核空间，有两个全局变量global_A和global_B紧挨在一起，当A缓存到CPU0
+		的dcache，B因为局部性也当然会缓存到dcache。若是此时，CPU1访问B，根据MESI协议，
+		从CPU0的dcache中同步到CPU1的dcache，此时，CPU0和CPU1的这条cache line标识为shared。
+
+		2）MESI对L1的维护下出现cache颠簸
+		此时，假设CPU0修改A，那么CPU0对应的cache line就会通知CPU1对应的cache line无效。
+		CPU0修改A，标志自己的cache line为Modify
+
+		若是CPU1此刻也想修改B，很抱歉，原来已经缓存的cache line已经无效，CPU1会重新
+		缓存CPU0中的dcache，并且标志CPU0的cache line无效，CPU1的为modify
+
+		因此，CPU0和CPU1你搞我无效你修改，我搞你无效我修改，这样反复颠簸
+		这种现象就是两个变量间伪共享，A和B之间是伪共享关系。
+
+	2，怎么解决变量间伪共享的问题
+
+		之前我在cache与DMA一致性的时候，谈论过，如果DMA使用kmalloc申请的数据强制要求对
+		cache line对齐，可以解决一些一致性的问题，这个思想这里也可以这样用，并且现在就这样用
+
+		在Linux内核中，我们可以使用
+		__cacheline_aligned_in_smp宏定义来解决false shared问题。
+
+		#ifdefine CONFIG_SMP
+		#define __cacheline_aligned_in_smp	__cacheline_aligned
+		#else
+		#define __cacheline_aligned_in_smp
+		#endif
+
+		从上面的宏定义可以看出，在多核系统中，我们可以使用上面的宏，将变量cache line对齐
+		从而避免false sharing的问题。
