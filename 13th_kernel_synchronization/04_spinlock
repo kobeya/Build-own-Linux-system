@@ -1,0 +1,101 @@
+【spinlock的前前后后】
+
+	思考问题：
+	1，如果多核cpu中多个进程都在等待spinlock，会不会导致多核都在自旋浪费资源？
+	2，多核多进程按照什么顺序获得锁？
+
+
+	请注意，下面的代码是存在问题的，实际中的代码要更加复杂而且需要严肃考虑原子性问题
+	我这里只是作为一个思想上的引导指示，并非实际内核中使用的代码
+
+一、wild spinlock
+	
+	看下实现：
+		struct spinlock {
+			int locked;
+		};
+
+		void spin_lock(struct spinlock *lock)
+		{
+			while(lock->locked);//自旋查询是否有锁，发现锁住就忙等待
+			lock->locked = 1;//说明目前锁是空闲的，那么就获得锁
+		}
+
+		void spin_unlock(struct spinlock *lock)
+		{
+			if(lock->locked == 1){lock->locked = 0}
+		}
+
+	这里存在一个问题
+	假设，有8个CPU在等待锁，CPU0获得锁，那么CPU1~7，谁将在下一个获得锁呢？
+	所以，wild spinloc存在问题，锁的分配随机，可能出现某个CPU等锁饥饿。
+
+二、ticket spinlock
+	为了让所有的CPU都有机会拿到锁，引入FIFO排队机制
+	记得宋宝华也谈过这个问题，这就跟去银行办理业务一样，谁先来，就去取票排队，票号到了，
+	就能获得执行权限。
+	
+		struct t_spinlock {
+			unsigned short next;
+			unsigned short owner;
+			int locked;
+		};
+
+		void spin_lock(struct t_spinlock *lock)
+		{
+			lock->next += 1;
+			while(lock->owner != next);
+			lock->locked = 1;
+		}
+
+		void spin_unlock(struct t_spinlock *lcok)
+		{
+			if(lock->locked ==1)
+			{
+				lock->owner +=1;
+				lock->locked = 0;
+			}
+		}
+
+	这样就可以避免有些CPU弱而无法获取锁出现饥饿的问题，
+	但是，依然存在问题：
+	每个出现一个进程申请锁的时候，都会先修改t_spinlock结构体里的变量，如果这个结构体已经
+	缓存到某个CPU L1 dcache，那么问题就来了
+	比如CPU0先获得spinlock，CPU1再想获得，就会从CPU0中获取该对象，然后通知CPU0无效，再修改自己的
+	值，然后再同步回给CPU0，如此反复，所有申请spinlock的进程都会影响其他同样申请锁的进程
+	导致性能下降，延迟增加。
+
+
+三、qspinlock
+
+	t_spinloc的根因是因为所有的spinlock共享一个数据结构体，如果我们将spin的变量都单独管理
+	但又统一调配不就可以了吗？
+	是的，引入MCS锁的实现原理，通过单链表来管理spin结构体，每当有一个进程申请锁，就加入到
+	链尾，当锁一空闲，马上从链表头开始分配下一个进程。
+
+
+	有兴趣可以看看MCS锁的实现
+	https://elixir.bootlin.com/linux/v5.4.33/source/kernel/locking/mcs_spinlock.h
+	
+
+
+
+四、总结
+	回答开头两个问题
+
+	1）是的，存在浪费，所以我们也许考虑使用信号量，但是信号量需要维护睡眠队列，还需要耗费资源去
+	唤醒。所以，自旋锁在设计中，就要求使用场景：
+		a	不能睡眠，假如睡眠，谁知道睡多久，其他人都在干着急呢
+		b	尽量简短，霸占着锁，别人又只能站着干着急，您还是赶紧的吧
+
+	2）我们引入排队FIFO的方式安排锁的获取顺序，现在使用单链表来管理锁的队列
+	这样不仅可以满足FIFO，而且每个单元独立互不干扰，性能更加优良。
+		
+
+
+
+
+
+
+
+
