@@ -1,0 +1,172 @@
+【一、Android Camera框架】
+	备注：不同的平台还可能有一些差异
+	
+	1，角度1	
+
+		
+				APP
+		——————————————————————————————————————————————————————————————————————
+		Framework
+			1）frameworks/base/core/java/android/hardware/Camera.java
+
+			2）Libandroid_runtime.so
+			3）Libui.so
+				|-----------Binder通信------->Libcameraservives.so
+									|
+		_______________________________________________________________________
+		HAL						---3A
+							HAL库|  ---sensor_lib
+								---chromatix
+		_______________________________________________________________________
+		Kernel				
+
+
+
+	2，角度2，从APP执行功能一直调用到内核的路径
+
+		APP -> Framework -> JNI -> Camera.cpp -> CameraClient,用功能模块启动
+								|
+							     Binder通信
+								V
+					系统启动后init.rc中启动CameraServer，从HAL层获取相关信息
+								|
+							       HAL
+								|
+					   |-------------------------------------------|	
+				open /dev/videoX				Native Socket
+				然后就发送V4L2 CMD				       |	
+					   |					     Daemon
+					   |					       |
+					   -----------------------|-----Event事件-------	
+								  V
+								KERNEL
+
+
+		
+	3，角度3，kernel层camera启动流程（请注意，不同的平台，代码有非常大的差异）
+		如果在RK平台，主要使用内核自带的soc-camera，但是qcom使用自己的msm platform架构，
+		我个人认为区别在于高通针对自己面向的业务做了一些优化改良。
+		内核启动后，调用
+		kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor_init.c
+		中的init_module函数，主要做：
+		1）初始化v4l2_subdev_init
+		2）执行v4l2的操作函数v4l2_subdev_fops
+		
+		这个结构体，调用
+		kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor_driver.c
+		1）解析dts的相关参数
+		2）v4l2的一些特定配置和i2c控制通道配置
+		
+		然后，在调用
+		kernel/drivers/media/platform/msm/camera_v2/sensor/msm_sensor.c
+		1）获取cci subdev
+		2）上下电动作，匹配id
+
+		总结来说
+		首先内核启动后，会先进入sensor_init，初始化v4l2的fops
+		然后再进入sensor_driver里面解析dts的配置，获得v4l2和控制i2c通道的配置
+		再然后进入sensor.c中做上下电动作，启动时序，匹配camera id，给时钟，启动camera。
+
+
+
+【二、camera驱动框架】
+
+		1，Imgsensor感光成像驱动
+			摄像头感光芯片
+			相机像素大小、成像能力
+
+		2，Flashlight闪光驱动
+			闪光灯IC芯片，有些平台直接使用PMIC预置gpio
+			相机闪光灯或者手电筒功能
+
+		3，Actuator，对焦马达驱动
+			对焦马达芯片，在AF模组中才有这一部分
+			AF模组，自动对焦摄像头模组
+
+		4，EEPROM驱动，编写OTP驱动
+			主要用来保存一些校准数据，
+			摄像头模组OTP数据，AWB校准数据，Lens Shadding校准数据等
+
+		5，CSI、CCI
+
+
+
+
+【三、camera驱动工作流程】
+		
+		1，内核起来后，先对msm_sensor_driver模块初始化，对dts配置进行相关解析
+		2，Android启动后，启动camera的守护进程，调用一系列初始化接口
+		3，根据sensor name去匹配相关初始化，然后再到底层写入模组寄存器
+
+
+			
+
+【四、HAL v3与v1的区别与过渡】
+		
+	细节部分，我会在后续的章节中罗列出来，但是我从RK平台的角度出发，因为我手里目前没有qcom的
+	代码，只有RK3399的SDK。
+
+	1，Android5.0上，google正式将camera HAL v3.0作为一个标准配置发行，兼容camera HAL v1.0。
+
+	2，V3与V1本质区别
+		V3把帧的参数和帧的图像数据绑定在一起了
+		如果V1版本，APP想要一个预览的图像，能获取到一个YUV格式的帧，但是APP无法知道这个帧
+		包含的具体参数配置。
+
+		如果V3版本，那么每一个帧都有一个数据结构来描述了，其中包括了帧的参数和帧的数据，
+		当APP需要发送一个请求的时候，需要指定什么样的参数，然后返回的数据，就按照请求获取
+		到帧数据和帧相关的参数配置。
+
+	3，V3增加设定参数
+		framework-----metadata----HAL
+		即，每一个设置在V3版本是一个参数对（功能参数，配置参数）
+		比如，V3版本中设置V1版本的AE mode = auto，变为AE用10表示，auto用1表示，那么这个
+		参数对，就是（10,1）
+
+		这些参数对，google已经做好，但是也预留有地方给厂商自定义自己的特定的参数对
+		这涉及到一个vendor tag的数据范围，这里就不展开了。
+
+
+	4，V3版本的优势
+		V3版本将更多的数据交互放在framework层中完成，也就是将更多的控制权，
+		掌握到手里，从而与HAL层的交互数据变少，减轻HAL层的工作量。
+		也就是更加的规模化。
+
+
+	5，qcom平台使用的HAL v3 ---CamX
+		Qcom作为平台厂商会根据谷歌定义的HAL3接口来实现自己的Camera HAL3,
+		新的主流的Qcom Camera HAL3 架构就是CamX了
+		
+		
+		
+	
+【五、Framework层框架】
+	
+	主要讨论camera2client的建立与初始化过程，主要工作是初始化并建立各个处理模块
+	1，StreamingProcessor，启动一个它所属的线程，从HAL层获取数据，用于预览与录像
+	2，FrameProcessor，启动一个thread，处理每一帧原始数据外的3A附加信息
+	3，CaptureSequencer并启动一个thread，用于向APP层告知capture到的picture，录像和拍照
+	4，JpegProcessor并启动一个thread，该模块和streamprocessor类似，他启动一个拍照流，
+		一般用于从HAL层获取jpeg编码后的图像照片数据
+	5，ZslProcessor模块称之为0秒快拍，其本质是直接从原始的Preview流中获取预存着的最近的几帧，
+		直接编码后返回给APP，而不需要再经过take picture去请求获取jpeg数据。
+		0秒快拍技术得意于当下处理器CSI2 MIPI性能的提升以及Sensor支持全像素高帧率的实时输出
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
