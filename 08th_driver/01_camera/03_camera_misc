@@ -1,0 +1,6 @@
+【一、0秒快拍技术】
+	Zslprocessor模块，称为0秒快拍。
+	本质是直接从原始的preview流中获取预存着的最近的几帧，直接编码后返回给APP，
+	而不用经过take picture去请求获取jpeg数据。
+
+	
