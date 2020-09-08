@@ -1,0 +1,46 @@
+【导读】
+	在RK平台，HAL3增加的属性值，比如预览、录像、拍照等数据流，可以直接dump出来
+【一、dump操作接口】
+
+	1	dump预览
+		adb shell setprop persist.vendor.camera.dump 1
+
+	2	dump video
+		adb shell setprop persist.vendor.camera.dump 2
+
+	3	dump zsl
+		adb shell setprop persist.vendor.camera.dump 4
+
+	4	dump jpeg
+		adb shell setprop persist.vendor.camera.dump 8
+
+	5	dump raw
+		adb shell setprop persist.vendor.camera.dump 16
+		这个raw并非从sensor直接出来的数据,而是从isp拿到的数据,还未在Hal层处理过
+
+	6	dump preview + video + jpeg
+		adb shell setprop persist.vendor.camera.dump 11
+
+
+	7	persist.vendor.camera.dump.skip 属性表示跳过前面n帧，其余dump出来
+
+	8	persist.vendor.camera.dump.interval 属性是表示dump帧的间隔
+
+	9	persist.vendor.camera.dump.count 属性表示dump帧的总帧数
+
+	10	persist.vendor.camera.dump.path 属性表示dump帧的路径
+
+【二、异常分析】
+
+	Dump属性设置完成后，如果打开相机预览，我们可以在板子上的/data/dump目录中，看到有对应的dump
+	文件出现的，如果没有，那么就查看一下log
+	adb logcat | grep "open file failed"
+	看下log提示什么报错，比如dump路径没有权限，或者不存在等问题
+	目录存在但依然无权限访问, 可以使用如下命令暂时关闭 selinux
+	adb root && adb shell setenforce 0
+
+【三、HAL3的其他一些内容】
+	1，获取HAL3的版本
+		1）adb shell getprop | grep cam.hal.ver
+
+		2）adb logcat | grep "Hal3 Release version"
