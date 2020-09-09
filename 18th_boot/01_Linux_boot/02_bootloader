@@ -1,0 +1,118 @@
+【上电后引导bootloader启动】
+
+	首先理解的方向应该以几个问题展开
+	1）bootloader的最终目的是引导内核加载并启动
+	2）bootloader那么就需要给内核启动创建条件
+	3）bootloader除了加载内核之外还能做些什么事情
+
+【bootloader种类】
+	bootloader有很多种类，一般按照支持的处理器体系可以划分如下；
+	1，X86体系
+		1）LILO，磁盘引导程序
+		2）Grub，GNU引导的LILO替代程序
+		3）Loadlin，DOS引导Linux
+		4）ROLO，从ROM引导Linux而不需要BIOS
+		5）Etherboot，从以太网移动Linux
+		6）Linux BIOS，完全替代BIOS的Linux引导程序
+
+	2，ARM体系
+		Blob，LART等硬件平台的引导程序
+
+	3，支持X86，也支持ARM
+		1）Uboot，通用引导程序-------------------------我们基本使用这种
+		2）RedBoot，基于eCos的引导程序
+		
+
+
+【展开bootloader的主要工作】
+
+	1，bootloader的启动
+		不同的处理器上电或者复位后执行的第一条指令地址并不一定相同，对于ARM处理器来说，
+		该地址一般为0x0000 0000，对于一般的嵌入式系统，通常把flash等非易失性存储器映射
+		到这个地址上，然后bootloader就存放到这个存储器的最前端，所以系统上电或者复位执行
+		的第一段程序就是bootloader。
+		虽然找到了bootloader，但是bootloader的启动方式还会根据存储器的属性有所不同
+		1）nor flash
+			支持芯片内直接执行
+		2) nand flash
+			不支持芯片上直接执行，那么就拷贝到RAM中执行
+			nand flash也有一个属性，就是自动把前4K的内容拷贝到RAM中
+角度一、
+
+	2，bootloader必须做的功能
+
+		1）初始化RAM
+			因为内核在RAM中执行，那么就为内核准备RAM
+			怎么初始化？
+			先设置CPU的控制寄存器参数，用于检测RAM和设置RAM
+
+		2）初始化串口
+			我们要想看到启动信息，便于查看启动过程，调试等等
+
+		3）检测CPU类型
+			bootloader检测当前CPU的类型信息，保存到某个常量中
+			后续Linux内核就会根据这些信息做一些处理器相关的初始化
+
+		4）设置Linux启动参数
+			目前传递启动参数有两种方式
+			1）struct param_struct，2.4后本体不用了，不过也被兼容可以使用
+			2）struct tag标识列表
+			现在基本使用标识列表的方式传递内核启动参数
+			ATAG_CORE开始，填各种参数，ATAG_NONE结尾
+
+		5）调用Linux内核镜像
+			
+
+角度二、
+	3，bootloader启动过程
+		分两个阶段
+		1）stage1
+			a	基本的硬件初始化
+			b	为stag2准备RAM空间
+			c	拷贝内核镜像文件和文件系统映像到RAM
+			d	设置堆栈指针SP
+			e	调到stag2阶段继续执行
+
+		2）stage2
+			a	继续初始化本阶段用到的硬件
+			b	检测系统的内存映像
+			c	加载内核映射和文件系统
+			d	设置内核启动参数
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
