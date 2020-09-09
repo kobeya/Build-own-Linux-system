@@ -1,0 +1,9 @@
+1，MIPS
+	Million Instruction Per Second，每秒百万条指令
+	比如10MIPS，表示每一秒执行1000万条指令。
+
+	
+2，DMIPS
+	Dhrystone MIPS，表示测量CPU运行一个叫Dhrystone的整数运算测试程序时表现出来的相对性能高低
+
+
