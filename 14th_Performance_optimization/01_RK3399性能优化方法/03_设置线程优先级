@@ -1,0 +1,20 @@
+【设置线程的优先级】
+
+	1，底层API 
+
+				int sched_setscheduler(pid_t pid, 
+					int policy, const struct sched_param *param);
+
+		函数将pid所指定进程的调度策略和调度参数分别设置为policy和param指向的sched_param
+		结构中指定的参数。sched_param 结构中的 sched_priority成员的值可以为任何整数,
+		该整数位于 policy 所指定调度策略的优先级范围内(含边界值)。
+
+
+
+实践参考https://blog.csdn.net/allwtg/article/details/5254306
+
+
+	2，命令行模式
+
+		chrt工具，busybox已经集成
+		如果我们加入-f参数，是可以让线程使用sched_fifo调度策略，也就是变成了RT进程
