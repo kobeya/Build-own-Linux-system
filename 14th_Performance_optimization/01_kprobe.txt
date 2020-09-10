@@ -1,0 +1,121 @@
+		Linux内核调试技术之kprobe实现和使用
+		～～～～～～～～～～～～～～～～～
+
+	参考文档（而且内核也有源码demo）：
+	内核自带的文档Documentation/kprobes.txt  kprobetrace.txt
+
+【索引】
+	在我们内核中，有时候需要知道一个函数的执行状态，比如有没有被调用，何时被调用，执行是否正确
+	以及函数的入参和返回值等等信息，比较笨重的方法，可以使用printk来打印日志信息，而且这种方法
+	需要时间，甚至还会干扰原来代码的执行流程（记得有文章探索过printk函数有很深层次的调用）。
+	那么有没有比较简单高效的方法呢？
+	答：
+		kprobe技术，用户可以定义自己的回调函数动态探测，动态移除。
+		基于kprobe技术的jprobe探测参数
+		基于kprobe技术的kretprobe探测返回
+
+【一、通过实例探索实现原理】
+	1，我们可以参考内核源码中的samples/kprobes下
+		-rw-r--r--  1 kobey kobey 1796 7月   9 11:11 jprobe_example.c
+		-rw-r--r--  1 kobey kobey 3323 7月   9 11:11 kprobe_example.c
+		-rw-r--r--  1 kobey kobey 2999 7月   9 11:11 kretprobe_example.c
+		-rw-r--r--  1 kobey kobey  221 7月   9 11:11 Makefile
+
+		简单分析一下kprobe_example.c
+
+		1）注册ko模块，然后申请三个钩子函数
+		handle_pre//执行探测点之前
+		handle_post//执行探测点之后
+		handle_fault//在执行上面两个或者单步执行需要探测的函数时出现错误回调
+		然后在钩子函数中填充自己想要做的一些事情
+		2）在symbol_name中填写我们想要探测的函数
+
+
+	2，kprobe主要有两种使用方法
+		1）模块加载
+			编译ko文件，insmod ko文件，然后当我们执行需要探测的函数symbol_name的时候
+			就会回调钩子函数输出我们想要的信息
+
+		2）debugfs接口
+			mount -t debugfs nodev /sys/kernel/debug先挂载debugfs文件系统
+			cd /sys/kernel/debug/tracing，进入tracing目录
+			
+			执行
+			echo "p:sys_write_event sys_write" > kprobe_events
+			就会发生当前路径的events目录下，自动生成了一个kprobe路径，并且里面有相关内容
+			/sys/kernel/debug/tracing/events/kprobes
+				enable filter sys_write_event
+			即，我们注册的kprobe事件生效了。
+			那么"p:sys_write_event sys_write"是什么意思呢？
+			首先p表示我们要注册一个kprobe，
+			如果要注册retprobe，此处应为r；
+			sys_write_event表示这个kprobe叫什么名字；
+			sys_write表示我们的插入点在哪里。
+			那么，
+			“p:sys_write_event sys_write”的语义就很明显了：
+			在函数sys_write处插入一个kprobe点，这个点的名字叫sys_write_event。
+
+			使能就是echo 1 > enable,
+			撤销echo 0 > enable,然后再注销kprobe，
+			echo "-:kprobes/sys_write_event" >> kprobe_events
+		3）这两种方法的关系
+			debugfs接口注册的方法，实际是ftrace的输出框架，然后注册kprobe来实现探测功能。
+			
+
+	3，kprobe原理探索
+		1）基本思考
+		将本来正常执行的一条指令，拆分为执行
+		kprobe--->pre_handle--->原来的指令--->post_handle
+		
+		2）流程如下
+			|	|正常执行
+			|	|----------这是需要探测的函数，此刻先使用BRK指令替换掉，				     |			被探测的函数，就先保存到kprobe结构体的一个opcode域
+			|		
+			|	|正常执行遇到BRK指令，内核就陷入异常，执行kprobe中的pre_handle钩子
+			|		    a	打印钩子信息
+			|		    b	设置单步调试寄存器，注意，这个单步调试会再次让
+			|				内核陷入kprobe中
+			|	|返回正常指令，单步执行
+			|
+			|	|再次陷入kprobe，清除单步执行寄存器，执行post_handle钩子
+			|
+			|	|下一条正常执行的指令
+			V time
+
+		简单描述：
+		当CPU执行到设置kprobe探测的函数的时候，这个函数已经被kprobe替换掉成了BRK指令
+		这条指令会让内核陷入异常，然后根据BRK的异常码知道这是一个kprobe的异常，
+		然后进入kprobe异常处理中的pre_handle处理函数，设置sigle_step寄存器，此时
+		再修改PC指针的值指向正常执行函数内存的首地址，单步执行
+		然后再触发kprobe异常，此时，就可以清楚单步调试寄存器的值，然后再执行post_handle
+		最后返回下一条正常执行指令的地址给PC寄存器，完成kprobe探测。
+
+
+		备注：BRK指令是x86中的int 3异常，但是ARM体系是触发未定义的指令异常。
+		包括我们的kprobe实现，在两个体系中也存在差异。
+		也就是上面描述的流程，基本是通用的，但是细节上是存在差异。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		
+		
+	
+	
+	
+	
+
+
