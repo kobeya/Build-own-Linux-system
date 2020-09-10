@@ -1,0 +1,75 @@
+一、软件功耗组成
+
+	1，通用的功耗
+	2，CPU的功耗
+	3，wakelock，唤醒锁的功耗
+	4，mobileRadio	移动无线的功耗
+	5，wifi
+	6，gps
+	7，sensor
+	8，camera
+	9，flashlight
+
+
+二、通过使用基于adb bugreport捕获的日志分析用户手机个app的电池耗电情况的Battery Historian
+	这是一款google开源的工具，在github上开源。
+	https://github.com/google/battery-historian
+
+	通过浏览器打开bugreport日志可以获取一个耗电的图形化展示界面
+	横轴是时间轴，纵轴代表每一个耗电项的耗电情况，还能看到具体的应用
+
+
+三、使用adb shell dumpsys butterystats，打印电池消耗相关的信息
+
+
+四、量测采样高精度的电流波形的专业设备Power Monitor https://www.msoon.com/online-store
+
+五、Android定时任务实现对能耗的影响
+	1）Timer机制
+	不适合长期后台运行的定时任务，因为Android手机基本会设置成长时间不操作的情况下，自动让
+	CPU进入到睡眠状态，此时就可能导致Timer的定时任务无法运行。
+	2）Alarm机制
+	它具有同时唤醒CPU的功能。
+	但是Android4.4以后，Alarm机制也变得不准确，有可能会延迟一段时间后，任务才能得到执行。
+	这不是bug，这是Android对能耗优化的一种策略。
+	Alarm优化后有一个小机制，就是自测当前有多少个Alarm任务在等待唤醒，如果发现几个任务是
+	接近的，那么就会把这几个任务，选择一个折中的时间，一起执行。
+	这样做的目的，是减少CPU被唤醒的此时，从而省电。
+
+六、wifi比蜂窝数据更加省电，所以我们可以在设置手机待机的时候，通过wifi接受信号比2G、3G等要更加省电
+
+七、APP的安装使用环境对功耗甚至性能的影响
+	1）Dalvik，app每次运行都需要字节码通过即时编译器转换为机器码
+		拖慢app运行效率		
+	2）ART环境中，app在第一次安装的时候，就已经预先被编译成机器码，称为真正意义上的本地app
+		这样占据的空间大
+		好处就是执行启动效率高，CPU启动就省电
+
+八、BLE蓝牙4.0，从Android4.3引入对BLE的支持
+	GAP，Generic Access Profile，连接协议
+	GATT，Generic Attribute Profile，通信协议
+	
+九、手机功耗总结的两个方向
+	1，硬件方向
+	逐步拔出外设，比如TP、LCD、camera等，定位功耗问题，比如某个引脚漏电等
+
+	2，软件方向
+		1）从电池电量电流波形入手，分析电池电流功耗			
+		2）从异常唤醒锁入手
+		3）关核降频技术
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
