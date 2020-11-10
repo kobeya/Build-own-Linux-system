@@ -85,6 +85,309 @@
 
 
 
+_________________update 2020年11月10日15:34:22__________________________________________
+
+
+画一个图来演示整个启动流程吧
+
+（bootloader stage1）
+
+1，系统上电复位
+	CPU从复位地址上获取第一条指令，这条指令是通过重定位预先设置好的地址，怎么理解呢？
+	首先，比如我们的系统镜像是存放到flash中的，在制作镜像的时候，通过bootloader的集成
+	开发环境将bootloader的第一条指令定位到复位地址上，这部分的开发目前是由原厂完成，
+	但是我们也应该了解到这一步，后续出现问题，至少有个思路。
+
+2，执行bootloader stage1 汇编部分，初始化RAM
+	其中查看汇编代码可以看到
+	
+	a	设置CPU为超级保护模式，也就是特权模式
+
+		关闭看门狗，防止定时复位（看门狗就是一个定时器，到点就需要喂狗，否则就会触发中断，
+		这里不需要，直接关闭就好）
+
+		屏蔽所有的中断，因为当前不需要提供中断服务，而且可以避免在启动早期收到中断干扰。
+		通过设置CPU的中断屏蔽寄存器或者状态寄存器，ARM的CPSR寄存器来完成。
+
+
+	b	设置CPU的速度和时钟频率，也就是CPU的执行环境初始化
+
+	c	RAM的初始化，简单说就是设置RAM的各种控制寄存器等操作
+
+	d	如果需要，bootloader中还可以实现一些LED的初始化或者uart控制器的初始化，
+		做一个UI上的开机提醒等操作
+
+	e	关闭CPU内部的一级缓存，因为smp中，需要保持数据的一致性
+
+
+
+3，拷贝bootloader stage2部分到RAM中
+
+	拷贝的时候主要两点
+	a	stage2拷贝的可执行镜像在flash存放的起始地址和终止地址
+	b	RAM空间的起始地址
+
+
+4，设置堆栈，提供C代码执行环境
+
+	将SP指针的地址指向之初始化RAM后拷贝的stage2的RAM空间顶端-4K字节的地方
+
+
+
+
+
+5，跳转到stage2 C的入口点
+	
+	修改PC指针寄存器为C入口函数的地址来实现，也就是让PC指针指向C入口函数的地址，CPU下一条指令
+	自然而然执行到C程序了。
+
+
+（bootloader stage2）
+
+
+	第一个c程序是start_armboot
+
+	ldr pc, _start_armboot;
+
+
+6，初始化本阶段要用到的硬件设备
+
+	board_init函数		
+	
+	a	比如初始化串口，这样可以方便使用串口执行IO输出信息
+	b	初始化计时器等
+	c	保存machine id
+
+
+7，检测系统的内存映射 memory map
+
+	简单的说，就是在物理内存空间中，划分哪些地址范围用来分配系统各个单元的寻址。
+	也就是说，虽然我们现在有这么多RAM，但是不是所有的RAM都一一映射，有些RAM是预留出来unused的。
+
+
+
+8，加载内核镜像和根文件系统镜像
+	加载的位置主要考虑两个方面，基地址和镜像大小
+	内核大小几M，根文件系统映像也是几M左右，这个说不准。
+
+
+
+9，设置内核启动参数
+	a	检测当前处理器的类型，将信息保存到某个常量提供给内核，这样在内核启动过程中会根据
+		处理器的类型选择不同的初始化程序分支
+
+	b	传递内核启动参数的方式
+		在2.4内核版本之前使用struct param_struct，也就是参数列表的方式
+		在2.4内核版本之后使用struct tag，也就是标志列表的方式
+	
+	c	tag list的方式
+		使用ATAG_CORE开始，ATAG_NONE结尾，中间根据需要加入其他列表，
+		然后Linux内核就在启动过程中会根据这些启动参数进行相应的初始化工作。
+		
+		struct tag_core core;
+		struct tag_mem32 mem;
+		struct tag_ramdisk ramdisk;
+		struct tag_initrd initrd;
+		struct tag_cmdline cmdline;
+		...
+
+		每个成员变量再通过结构指针来取值。
+		然后有一个tag_next执行下一个标志的起始地址，
+		一直到最后setup_end_tag中设置ATAG_NONE结尾。
+		
+
+
+	d	在跳转内核执行之前，CPU的寄存器必须满足
+		r0 = 0;
+		r1 = CPU类型;
+		r2 = 标志列表在RAM中的地址
+
+
+
+10，启动内核
+	
+	在arch/arm/kernel/head.S中
+	不同的CPU或者不同的平台有一些差异，这里描述一些基本的流程
+
+	a	call_linux(0, machine_type, kernel_params_base)启动内核
+		主要传递两个参数，处理器类型和启动参数在RAM中的基地址
+		这样就完成了bootloader传递到内核的过程。
+
+	b	内核镜像分Image和zImage两种
+		一般我们现在使用zImage，也就是Image+压缩头部
+		所以，首先我们需要解压缩zImage，入口在
+		arch/arm/boot/compressed/head.S中
+
+		初始化MMU
+		初始化cache和flush cache
+
+		调用decompress_kernel解压内核
+
+		解压后再通过call_kernel进入非压缩内核Image的启动流程
+
+	c	arch/arm/kernel/head-armv.S
+		
+		ld _lookup_machine_type ---寄存器，再与早期初始化好的寄存器做比较，判断是否满足启动要求
+		ld _lookup_processor_type
+
+		调用create_page_table函数，建立页表
+			通过查找处理器内核类型和处理器类型调用响应的初始化函数
+		/*
+		 * Setup the initial page tables.  We only setup the barest
+		 * amount which are required to get the kernel running, which
+		 * generally means mapping in the kernel code.
+		 *
+		 * r8 = phys_offset, r9 = cpuid, r10 = procinfo
+		 *
+		 * Returns:
+		 *  r0, r3, r5-r7 corrupted
+		 *  r4 = physical page table address
+		 */
+		
+		__create_page_tables:
+			pgtbl   r4, r8                          @ page table address
+
+			/*
+			 * Clear the swapper page table
+			 */
+			mov     r0, r4
+			mov     r3, #0
+			add     r6, r0, #PG_DIR_SIZE
+		1:      str     r3, [r0], #4
+			str     r3, [r0], #4
+			str     r3, [r0], #4
+			str     r3, [r0], #4
+			teq     r0, r6
+			bne     1b
+
+		设置创建满足内核运行的内存映射
+
+		
+
+
+
+	d	start_kernel()函数开始内核的初始化工作
+		
+		一系列与硬件相关的初始化工作
+			主要做
+			调用setup_arch函数进行与体系结构相关初始化工作
+			在kernle/setup.c中
+
+
+	/*
+	 * This is the secondary CPU boot entry.  We're using this CPUs
+	 * idle thread stack, but a set of temporary page tables.
+	 */
+	asmlinkage void secondary_start_kernel(void)
+	{
+		struct mm_struct *mm = &init_mm;
+		unsigned int cpu;
+
+		/*
+		 * The identity mapping is uncached (strongly ordered), so
+		 * switch away from it before attempting any exclusive accesses.
+		 */
+		cpu_switch_mm(mm->pgd, mm);
+		local_flush_bp_all();
+		enter_lazy_tlb(mm, current);
+		local_flush_tlb_all();
+
+		/*
+		 * All kernel threads share the same mm context; grab a
+		 * reference and switch to it.
+		 */
+		cpu = smp_processor_id();
+		atomic_inc(&mm->mm_count);
+		current->active_mm = mm;
+		cpumask_set_cpu(cpu, mm_cpumask(mm));
+
+		cpu_init();
+
+		pr_debug("CPU%u: Booted secondary processor\n", cpu);
+
+		preempt_disable();
+		trace_hardirqs_off();
+
+		/*
+		 * Give the platform a chance to do its own initialisation.
+		 */
+		if (smp_ops.smp_secondary_init)
+			smp_ops.smp_secondary_init(cpu);
+
+		notify_cpu_starting(cpu);
+
+		calibrate_delay();
+
+		smp_store_cpu_info(cpu);
+
+		/*
+		 * OK, now it's safe to let the boot CPU continue.  Wait for
+		 * the CPU migration code to notice that the CPU is online
+		 * before we continue - which happens after __cpu_up returns.
+		 */
+		set_cpu_online(cpu, true);
+		complete(&cpu_running);
+				
+	        local_irq_enable();
+		local_fiq_enable();
+		local_abt_enable();
+
+		/*
+		 * OK, it's off to the idle thread for us
+		 */
+        	cpu_startup_entry(CPUHP_ONLINE);
+	}
+
+
+
+
+	用文字描述大概是这样的
+		首先做setup.c中的setip_arch来做板级初始化
+		bootm_init做内存结构的初始化，开启mmu，建立内核页表，
+		创建异常向量表
+		初始化中断服务
+		初始化内存管理服务
+		初始化cache缓存
+		初始化IPC进程间通讯
+		...
+
+		调用rest_init创建1号init进程
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
