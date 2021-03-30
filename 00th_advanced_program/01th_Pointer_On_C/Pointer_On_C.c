@@ -37,5 +37,45 @@ main(int argc, char *argv[], char *envp[])
 	us kobe = 10;
 	printf("kobe = %d\r\n", kobe);
 
+
+	/*while break and continue*/
+	int temp = 0;
+	while(temp < 2)
+	{
+		printf("while temp = %d\n", temp++);
+		continue;
+		printf("while temp end!\n");
+	}
+
+	for(temp = 0; temp < 2; temp++)
+	{
+		printf("for temp = %d\n", temp);
+		continue;
+		printf("for temp end!\n");
+	}
+
+	/*do{}while(1);*/
+	do{
+		printf("temp = %d\n", temp++);
+	}while(temp < 3);
+
+
+	/*goto*/
+
+	{
+		int temp1 = 0;
+		for(temp1 = 0; temp1 < 3;)
+		{
+			printf("temp1 = %d\n", temp1);
+			goto GotoHere;
+		}
+		printf("end temp1 for!\n");
+		printf("goto middle\n");
+	GotoHere:
+		printf("goto temp1 = %d\n", temp1++);
+		printf("1\n");
+	}
+
+	printf("main function end!\n");
 	return 0;
 }
